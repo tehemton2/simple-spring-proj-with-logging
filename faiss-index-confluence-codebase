@@ -1,0 +1,97 @@
+import numpy as np
+import faiss
+from sentence_transformers import SentenceTransformer
+
+# Load the pre-trained model
+model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+
+# List of documents
+documents = [
+    "UserWarning: `huggingface_hub` cache-system uses symlinks.",
+    "JDeveloper Mode or to run Python as an.",
+    "To support symlinks on Windows.",
+    "Jupiter is a small planet.",
+    "Earth is a small planet.",
+    "Earth is a big planet.",
+    "Earth revolves around the sun",
+    "Earth looks Blue from Space",
+    "Earth has 7 continents",
+    "Earth is 10 times bigger than moon"
+]
+
+# Corresponding metadata for each document
+metadata = [
+    {"title": "Warning", "category": "system"},
+    {"title": "JDeveloper", "category": "software"},
+    {"title": "Symlinks", "category": "system"},
+    {"title": "Jupiter", "category": "confluence"},
+    {"title": "Earth", "category": "codebase"},
+    {"title": "Earth", "category": "confluence"},
+    {"title": "Earth", "category": "confluence"},
+    {"title": "Earth", "category": "confluence"},
+    {"title": "Earth", "category": "confluence"},
+    {"title": "Earth", "category": "confluence"}
+]
+
+# Generate embeddings for all documents
+embeddings = model.encode(documents, convert_to_tensor=False)
+embeddings = np.array(embeddings)
+
+# Create a FAISS index
+dimension = embeddings.shape[1]
+index = faiss.IndexFlatL2(dimension)
+
+# Add embeddings to the index
+index.add(embeddings)
+
+# Save the index and metadata
+faiss.write_index(index, 'faiss_index.bin')
+np.save('metadata.npy', metadata)
+
+# Function to query the FAISS index and retrieve documents with a specific category
+def query_faiss_by_category(category, query_text, k=2):
+    # Load the index and metadata
+    index = faiss.read_index('faiss_index.bin')
+    metadata = np.load('metadata.npy', allow_pickle=True).tolist()
+
+    # Filter documents and metadata based on the category
+    filtered_documents = [doc for doc, meta in zip(documents, metadata) if meta["category"] == category]
+    filtered_metadata = [meta for meta in metadata if meta["category"] == category]
+
+    # Generate embeddings for filtered documents
+    filtered_embeddings = model.encode(filtered_documents, convert_to_tensor=False)
+    filtered_embeddings = np.array(filtered_embeddings)
+
+    # Create a new FAISS index for filtered documents
+    filtered_index = faiss.IndexFlatL2(filtered_embeddings.shape[1])
+    filtered_index.add(filtered_embeddings)
+
+    # Query text
+
+    query_embedding = model.encode([query_text], convert_to_tensor=False)
+    query_embedding = np.array(query_embedding)
+
+    # Search the FAISS index
+    distances, indices = filtered_index.search(query_embedding, k)
+
+    # Retrieve the most similar documents and their metadata
+    similar_documents = [filtered_documents[i] for i in indices[0]]
+
+    similar_documents = list(set(similar_documents))
+
+    return similar_documents
+
+# Example query
+query_text = "Details related to Earth planet and size"
+
+similar_documents_from_confluence = query_faiss_by_category("confluence", query_text)
+confluence_context = " ".join(similar_documents_from_confluence)
+
+print("Context from confluence:", confluence_context)
+
+similar_documents_from_codebase = query_faiss_by_category("codebase", query_text)
+codebase_context = " ".join(similar_documents_from_codebase)
+print("Context from codebase:", codebase_context)
+
+# Context from confluence: Earth is a big planet. Earth is 10 times bigger than moon
+# Context from codebase: Earth is a small planet.
